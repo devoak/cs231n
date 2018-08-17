@@ -301,6 +301,7 @@ class Solver(object):
                 if self.verbose:
                     remoteRunBuffer += '(Epoch %d / %d) train acc: %f; val_acc: %f' % (self.epoch, self.num_epochs, train_acc, val_acc)
                     print(remoteRunBuffer)
+                    remoteRunBuffer = ''
 
                 # Keep track of the best model
                 if val_acc > self.best_val_acc:
