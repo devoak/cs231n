@@ -113,6 +113,9 @@ class Solver(object):
           accuracy; default is None, which uses the entire validation set.
         - checkpoint_name: If not None, then save model checkpoints here every
           epoch.
+        - remotal_run: Boolean; if set to True then use optimization to not stuck
+          running with outputting information from remotal server about every N-iteration.
+          The solution is in idea of printing information to local buffer and printing it only at the end of epoch
         """
         self.model = model
         self.X_train = data['X_train']
@@ -132,6 +135,7 @@ class Solver(object):
         self.checkpoint_name = kwargs.pop('checkpoint_name', None)
         self.print_every = kwargs.pop('print_every', 100)
         self.verbose = kwargs.pop('verbose', True)
+        self.remotal_run = kwargs.pop('remotal_run', True)
 
         # Throw an error if there are extra keyword arguments
         if len(kwargs) > 0:
@@ -205,6 +209,7 @@ class Solver(object):
           'loss_history': self.loss_history,
           'train_acc_history': self.train_acc_history,
           'val_acc_history': self.val_acc_history,
+          'remotal_run': self.remotal_run
         }
         filename = '%s_epoch_%d.pkl' % (self.checkpoint_name, self.epoch)
         if self.verbose:
@@ -258,6 +263,8 @@ class Solver(object):
         """
         Run optimization to train the model.
         """
+        
+        remoteRunBuffer = ''
         num_train = self.X_train.shape[0]
         iterations_per_epoch = max(num_train // self.batch_size, 1)
         num_iterations = self.num_epochs * iterations_per_epoch
@@ -266,9 +273,9 @@ class Solver(object):
             self._step()
 
             # Maybe print training loss
+            # Optimized variant for remotal running
             if self.verbose and t % self.print_every == 0:
-                print('(Iteration %d / %d) loss: %f' % (
-                       t + 1, num_iterations, self.loss_history[-1]))
+                remoteRunBuffer += '(Iteration %d / %d) loss: %f\n' % (t + 1, num_iterations, self.loss_history[-1])
 
             # At the end of every epoch, increment the epoch counter and decay
             # the learning rate.
@@ -292,8 +299,8 @@ class Solver(object):
                 self._save_checkpoint()
 
                 if self.verbose:
-                    print('(Epoch %d / %d) train acc: %f; val_acc: %f' % (
-                           self.epoch, self.num_epochs, train_acc, val_acc))
+                    remoteRunBuffer += '(Epoch %d / %d) train acc: %f; val_acc: %f' % (self.epoch, self.num_epochs, train_acc, val_acc)
+                    print(remoteRunBuffer)
 
                 # Keep track of the best model
                 if val_acc > self.best_val_acc:
@@ -304,3 +311,16 @@ class Solver(object):
 
         # At the end of training swap the best params into the model
         self.model.params = self.best_params
+
+
+
+
+
+
+
+
+
+
+
+
+
