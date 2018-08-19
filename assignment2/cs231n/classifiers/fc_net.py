@@ -184,6 +184,9 @@ class FullyConnectedNet(object):
             layerOutputDimension = num_classes if index == len(hidden_dims) else hidden_dims[index]
             self.params[layersMatrixName] = weight_scale * np.random.randn(layerInputDimension, layerOutputDimension)
             self.params[layersBiasName] = np.zeros(layerOutputDimension)
+            if index != len(hidden_dims) and normalization == 'batchnorm':
+                self.params['gamma' + str(index + 1)] = np.float64(1.0)
+                self.params['beta' + str(index + 1)] = np.float64(0.0)
         
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -243,14 +246,37 @@ class FullyConnectedNet(object):
         # self.bn_params[1] to the forward pass for the second batch normalization #
         # layer, etc.                                                              #
         ############################################################################
-        cacheBuffer = [0.0] * self.num_layers
-        intermediateResult = X
-        for index in range(self.num_layers):
-            layerMatrix = self.params['W' + str(index + 1)]
-            layerBias = self.params['b' + str(index + 1)]
-            intermediateResult, cacheBuffer[index] = affine_relu_forward(intermediateResult, layerMatrix, layerBias) if (index != self.num_layers - 1) else affine_forward(intermediateResult, layerMatrix, layerBias)
+        if self.normalization == 'batchnorm':
+            affineLayerCacheBuffer = []
+            reluLayerCacheBuffer = []
+            batchNormCacheBuffer = []
+            intermediateResult = X
+            for index in range(self.num_layers):
+                layerMatrix = self.params['W' + str(index + 1)]
+                layerBias = self.params['b' + str(index + 1)]
+                if (index != self.num_layers - 1) and (len(self.bn_params) != 0):
+                    layerGamma = self.params['gamma' + str(index + 1)]
+                    layerBeta = self.params['beta' + str(index + 1)]
+                    intermediateResult, affineLayerCacheBufferElement = affine_forward(intermediateResult, layerMatrix, layerBias)
+                    affineLayerCacheBuffer.append(affineLayerCacheBufferElement)
+                    intermediateResult, batchNormCacheBufferElement = batchnorm_forward(intermediateResult, layerGamma, layerBeta, self.bn_params[index])
+                    batchNormCacheBuffer.append(batchNormCacheBufferElement)
+                    intermediateResult, reluLayerCacheBufferElement = relu_forward(intermediateResult)
+                    reluLayerCacheBuffer.append(reluLayerCacheBufferElement)
+                else:
+                    intermediateResult, affineLayerCacheBufferElement = affine_forward(intermediateResult, layerMatrix, layerBias)
+                    affineLayerCacheBuffer.append(affineLayerCacheBufferElement)
+            
+            scores = intermediateResult
+        else:
+            cacheBuffer = [0.0] * self.num_layers
+            intermediateResult = X
+            for index in range(self.num_layers):
+                layerMatrix = self.params['W' + str(index + 1)]
+                layerBias = self.params['b' + str(index + 1)]
+                intermediateResult, cacheBuffer[index] = affine_relu_forward(intermediateResult, layerMatrix, layerBias) if (index != self.num_layers - 1) else affine_forward(intermediateResult, layerMatrix, layerBias)
         
-        scores = intermediateResult
+            scores = intermediateResult
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -273,19 +299,47 @@ class FullyConnectedNet(object):
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
-        loss, intermediateGradient = softmax_loss(scores, y)
-        squaredL2RegularizationSumm = 0.0
-        for index in range(self.num_layers - 1, -1, -1):
-            layersMatrixName = 'W' + str(index + 1)
-            layersBiasName = 'b' + str(index + 1)
-            intermediateGradient, grads[layersMatrixName], grads[layersBiasName] = affine_relu_backward(intermediateGradient, cacheBuffer[index]) if (index != self.num_layers - 1) else affine_backward(intermediateGradient, cacheBuffer[index])
-            Wi = self.params[layersMatrixName]
-            squaredL2RegularizationSumm += np.sum(Wi * Wi)
-            grads[layersMatrixName] += self.reg * Wi
+        if self.normalization == 'batchnorm':
+            loss, intermediateGradient = softmax_loss(scores, y)
+            squaredL2RegularizationSumm = 0.0
+            for index in range(self.num_layers - 1, -1, -1):
+                layersMatrixName = 'W' + str(index + 1)
+                layersBiasName = 'b' + str(index + 1)
+                if (index != self.num_layers - 1) and (len(self.bn_params) != 0):
+                    layersGammaName = 'gamma' + str(index + 1)
+                    layersBetaName = 'beta' + str(index + 1)
+                    intermediateGradient = relu_backward(intermediateGradient, reluLayerCacheBuffer[index])
+                    intermediateGradient, grads[layersGammaName], grads[layersBetaName] = batchnorm_backward_alt(intermediateGradient, batchNormCacheBuffer[index])
+                    intermediateGradient, grads[layersMatrixName], grads[layersBiasName] = affine_backward(intermediateGradient, affineLayerCacheBuffer[index])
+                else:
+                    intermediateGradient, grads[layersMatrixName], grads[layersBiasName] = affine_backward(intermediateGradient, affineLayerCacheBuffer[index])
+                Wi = self.params[layersMatrixName]
+                squaredL2RegularizationSumm += np.sum(Wi * Wi)
+                grads[layersMatrixName] += self.reg * Wi
+
+            loss += 0.5 * self.reg * (squaredL2RegularizationSumm)
+        else:
+            loss, intermediateGradient = softmax_loss(scores, y)
+            squaredL2RegularizationSumm = 0.0
+            for index in range(self.num_layers - 1, -1, -1):
+                layersMatrixName = 'W' + str(index + 1)
+                layersBiasName = 'b' + str(index + 1)
+                intermediateGradient, grads[layersMatrixName], grads[layersBiasName] = affine_relu_backward(intermediateGradient, cacheBuffer[index]) if (index != self.num_layers - 1) else affine_backward(intermediateGradient, cacheBuffer[index])
+                Wi = self.params[layersMatrixName]
+                squaredL2RegularizationSumm += np.sum(Wi * Wi)
+                grads[layersMatrixName] += self.reg * Wi
         
-        loss += 0.5 * self.reg * (squaredL2RegularizationSumm)
+            loss += 0.5 * self.reg * (squaredL2RegularizationSumm)
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
 
         return loss, grads
+
+
+
+
+
+
+
+
